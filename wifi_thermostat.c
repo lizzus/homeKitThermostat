@@ -36,12 +36,9 @@
 #include <esplibs/libmain.h>
 #include <FreeRTOS.h>
 #include <task.h>
-
 #include <ssd1306/ssd1306.h>
-
 #include <homekit/homekit.h>
 #include <homekit/characteristics.h>
-//#include "wifi.h"
 #include <wifi_config.h>
 #include <dht/dht.h>
 
@@ -52,15 +49,15 @@
 #define TEMPERATURE_POLL_PERIOD 10000
 #define BUTTON_UP_GPIO 12
 #define BUTTON_DOWN_GPIO 13
-#define BUTTON_MODE_GPIO 15
+#define BUTTON_MODE_GPIO 0
 #define RELAY_GPIO 16
+#define RECIVE_GPIO 15
 const int LED_GPIO = 2;
-#define DEBOUNCE_TIME           500     / portTICK_PERIOD_MS
-#define RESET_TIME              10000   / portTICK_PERIOD_MS
+
 
 static ETSTimer thermostat_timer;
 static TaskHandle_t  xHandle ;
-
+bool fire = false, could = false;
 
 
 
@@ -144,9 +141,9 @@ void thermostat_identify_task(void *_args)
         for (int i = 0; i < 3; i++)
         {
             led_write(true);
-            vTaskDelay(250 / portTICK_PERIOD_MS);
+            vTaskDelay(150 / portTICK_PERIOD_MS);
             led_write(false);
-            vTaskDelay(250 / portTICK_PERIOD_MS);
+            vTaskDelay(150 / portTICK_PERIOD_MS);
         }
 
         vTaskDelay(350 / portTICK_PERIOD_MS);
@@ -163,9 +160,6 @@ void thermostat_identify(homekit_value_t _value)
     xTaskCreate(thermostat_identify_task, "Thermostat identify", 128, NULL, 2, NULL);
 }
 
-
-//void on_update(homekit_characteristic_t *ch, homekit_value_t value, void *context);
-//void process_setting_update();
 void process_setting_update();
 void on_update(homekit_characteristic_t *ch, homekit_value_t value, void *context)
 {
@@ -204,9 +198,9 @@ void reset_configuration_task()
         for (int i = 0; i < 5; i++)
         {
             led_write(true);
-            vTaskDelay(250 / portTICK_PERIOD_MS);
+            vTaskDelay(150 / portTICK_PERIOD_MS);
             led_write(false);
-            vTaskDelay(250 / portTICK_PERIOD_MS);
+            vTaskDelay(150 / portTICK_PERIOD_MS);
         }
         vTaskDelay(350 / portTICK_PERIOD_MS);
     }
@@ -244,14 +238,14 @@ static void ssd1306_task(void *pvParameters)
     char mode_string[20];
     char temperature_string[20];
     char humidity_string[20];
-    //  int count =0;
 
-    int xT = 5, yT = 2, xM = 80, yM = 35, xH = 90, yH = 2;
+    int xT = 5, yT = 2, xM = 83, yM = 37, xH = 90, yH = 2;
 
     vTaskDelay(SECOND);
+    
+    
     ssd1306_set_whole_display_lighting(&dev, false);
 
-    // ssd1306_load_xbm(&dev, homekit_logo, buffer);
 
     if (ssd1306_load_xbm(&dev, homekit_logo, buffer))
         goto error_loop;
@@ -262,13 +256,14 @@ static void ssd1306_task(void *pvParameters)
     vTaskDelay(SECOND * 5);
 
     ssd1306_clear_screen(&dev);
+    
+     
 
     while (1)
     {
     
    
-
-        int hum = (int)current_humidity.value.float_value;
+        uint8_t hum = (uint8_t)current_humidity.value.float_value;
         sprintf(temperature_string, "%g", (float)current_temperature.value.float_value);
         sprintf(humidity_string, "%i", hum /*(float)current_humidity.value.float_value */);
         sprintf(target_temp_string, "%g", (float)target_temperature.value.float_value);
@@ -289,6 +284,7 @@ static void ssd1306_task(void *pvParameters)
 
         switch ((int)target_state.value.int_value)
         {
+        
         case 0:
             sprintf(mode_string, "OFF ");
             break;
@@ -310,7 +306,7 @@ static void ssd1306_task(void *pvParameters)
             printf("Error printing rectangle\bn");
         }
 
-        if (ssd1306_draw_string(&dev, buffer, font_builtin_fonts[FONT_FACE_TERMINUS_BOLD_11X22_ISO8859_1], 5, 35, target_temp_string, OLED_COLOR_WHITE, OLED_COLOR_BLACK) < 1)
+        if (ssd1306_draw_string(&dev, buffer, font_builtin_fonts[FONT_FACE_TERMINUS_BOLD_11X22_ISO8859_1], 2, 37, target_temp_string, OLED_COLOR_WHITE, OLED_COLOR_BLACK) < 1)
         {
             printf("Error printing target temp\n");
         }
@@ -339,8 +335,16 @@ static void ssd1306_task(void *pvParameters)
             printf("Error printing mode\n");
         }
 
+		if(fire){
+		ssd1306_load_xbm(&dev, thermostat_xbm, buffer);
+		}
+
+		if(could){
+		ssd1306_load_xbm(&dev, thermostat_could_xbm, buffer);
+		}
+		
         if (ssd1306_load_frame_buffer(&dev, buffer))
-            goto error_loop;
+            goto error_loop;		
 
       //  vTaskDelay(SECOND / 2);
       vTaskSuspend(xHandle);
@@ -454,6 +458,7 @@ uint8_t state = target_state.value.int_value + 1;
             //cool
         case 2:
             state = 2;
+
             break;
             //auto
         case 3:
@@ -462,6 +467,7 @@ uint8_t state = target_state.value.int_value + 1;
 
         default:
             //off
+
             state = 0;
             break;
         }
@@ -492,7 +498,7 @@ void buttonUp(void *pvParameters)
     
         while(prest)
         {
-        	if(gpio_read(BUTTON_UP_GPIO) == 1){
+        	if(gpio_read(BUTTON_UP_GPIO) == 0){
         		if(press_time){
         			press_time = false;
         		    now = xTaskGetTickCountFromISR()*portTICK_PERIOD_MS;
@@ -503,7 +509,7 @@ void buttonUp(void *pvParameters)
         		}
         	}
         	
-            taskYIELD();
+           vTaskDelay(50 / portTICK_PERIOD_MS);
         }
         last = xTaskGetTickCountFromISR()*portTICK_PERIOD_MS;
         last -= now;
@@ -538,7 +544,7 @@ void buttonDown(void *pvParameters)
     
         while(prest)
         {
-        	if(gpio_read(BUTTON_DOWN_GPIO) == 1){
+        	if(gpio_read(BUTTON_DOWN_GPIO) == 0){
         		if(press_time){
         			press_time = false;
         		    now = xTaskGetTickCountFromISR()*portTICK_PERIOD_MS;
@@ -549,7 +555,7 @@ void buttonDown(void *pvParameters)
         		}
         	}
         	
-            taskYIELD();
+            vTaskDelay(50 / portTICK_PERIOD_MS);
         }
         last = xTaskGetTickCountFromISR()*portTICK_PERIOD_MS;
         last -= now;
@@ -584,7 +590,7 @@ void buttonMode(void *pvParameters)
     
         while(prest)
         {
-        	if(gpio_read(BUTTON_MODE_GPIO) == 1){
+        	if(gpio_read(BUTTON_MODE_GPIO) == 0){
         		if(press_time){
         			press_time = false;
         		    now = xTaskGetTickCountFromISR()*portTICK_PERIOD_MS;
@@ -595,7 +601,15 @@ void buttonMode(void *pvParameters)
         		}
         	}
         	
-            taskYIELD();
+        	if(gpio_read(RECIVE_GPIO) == 1){
+        		fire = true;
+        		vTaskResume(xHandle);
+        	}else{
+        		fire = false;
+        		vTaskResume(xHandle);
+        	}
+        	
+           vTaskDelay(50 / portTICK_PERIOD_MS);
         }
         last = xTaskGetTickCountFromISR()*portTICK_PERIOD_MS;
         last -= now;
@@ -629,8 +643,11 @@ void process_setting_update()
         {
             current_state.value = HOMEKIT_UINT8(1);
             homekit_characteristic_notify(&current_state, current_state.value);
-
+			
             relay_write(true);
+           // fire = true;
+            could = false;           
+
         }
     }
     else if ((state == 2 && current_temperature.value.float_value > target_temperature.value.float_value) ||
@@ -642,6 +659,8 @@ void process_setting_update()
             homekit_characteristic_notify(&current_state, current_state.value);
 
             relay_write(false);
+         //   fire = false;
+            could = true;
         }
     }
     else
@@ -652,6 +671,8 @@ void process_setting_update()
             homekit_characteristic_notify(&current_state, current_state.value);
 
             relay_write(false);
+          //  fire = false;
+            could = false;
         }
     }
     vTaskResume(xHandle);
@@ -693,34 +714,33 @@ void temperature_sensor_task()
 
 void thermostat_init()
 {
-		      gpio_enable(BUTTON_UP_GPIO, GPIO_INPUT);
+
+    gpio_enable(RECIVE_GPIO, GPIO_INPUT);
+    gpio_set_pullup(RECIVE_GPIO, false, false);
+
+    gpio_enable(BUTTON_UP_GPIO, GPIO_INPUT);
  //     gpio_set_interrupt(BUTTON_UP_GPIO, GPIO_INTTYPE_EDGE_ANY, NULL);
- //     gpio_set_pullup(BUTTON_UP_GPIO, false, false);
+    gpio_set_pullup(BUTTON_UP_GPIO, false, false);
       
     gpio_enable(BUTTON_DOWN_GPIO, GPIO_INPUT);
  //   gpio_set_interrupt(BUTTON_DOWN_GPIO, GPIO_INTTYPE_EDGE_ANY, NULL);
-//    gpio_set_pullup(BUTTON_DOWN_GPIO, false, false);
+    gpio_set_pullup(BUTTON_DOWN_GPIO, false, false);
     
     gpio_enable(BUTTON_MODE_GPIO, GPIO_INPUT);
 //    gpio_set_interrupt(BUTTON_MODE_GPIO, GPIO_INTTYPE_EDGE_ANY, NULL);
- //   gpio_set_pullup(BUTTON_MODE_GPIO, false, false);
-    
+    gpio_set_pullup(BUTTON_MODE_GPIO, false, false);
 
-
-   xTaskCreate(buttonUp, "buttonUp", 256, NULL, 1, NULL);
-	xTaskCreate(buttonDown, "buttonDown", 256, NULL, 1, NULL);
-	xTaskCreate(buttonMode, "buttonMode", 256, NULL, 1, NULL);
-    
     gpio_enable(LED_GPIO, GPIO_OUTPUT);
     led_write(false);
 
     gpio_enable(RELAY_GPIO, GPIO_OUTPUT);
     relay_write(false);
  
-  
     gpio_set_pullup(TEMPERATURE_SENSOR_PIN, false, false);
-
-  //  xTaskCreate(buttonPollTask,"buttonPollTask", 256, NULL, 2, NULL);
+ 
+ 	xTaskCreate(buttonUp, "buttonUp", 256, NULL, 2, NULL);
+	xTaskCreate(buttonDown, "buttonDown", 256, NULL, 2, NULL);
+	xTaskCreate(buttonMode, "buttonMode", 256, NULL, 2, NULL);
 
   sdk_os_timer_setfn(&thermostat_timer, temperature_sensor_task, NULL);
     sdk_os_timer_arm(&thermostat_timer, TEMPERATURE_POLL_PERIOD, 1);
