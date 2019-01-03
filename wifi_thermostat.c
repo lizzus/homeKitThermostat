@@ -370,13 +370,14 @@ void screen_init(void)
     i2c_init(I2C_BUS, SCL_PIN, SDA_PIN, I2C_FREQ_400K);
 #endif
 
-    while (ssd1306_init(&dev) != 0)
+    if (ssd1306_init(&dev) != 0)
     {
         printf("%s: failed to init SSD1306 lcd\n", __func__);
         vTaskDelay(SECOND);
     }
+    printf("SSD1306 lcd\n");
     ssd1306_set_whole_display_lighting(&dev, true);
-
+	
     xTaskCreate(ssd1306_task, "ssd1306_task", 512, NULL, 2, &xHandle);
 }
 
@@ -737,16 +738,17 @@ void thermostat_init()
     relay_write(false);
  
     gpio_set_pullup(TEMPERATURE_SENSOR_PIN, false, false);
- 
- 	xTaskCreate(buttonUp, "buttonUp", 256, NULL, 2, NULL);
-	xTaskCreate(buttonDown, "buttonDown", 256, NULL, 2, NULL);
-	xTaskCreate(buttonMode, "buttonMode", 256, NULL, 2, NULL);
 
   sdk_os_timer_setfn(&thermostat_timer, temperature_sensor_task, NULL);
     sdk_os_timer_arm(&thermostat_timer, TEMPERATURE_POLL_PERIOD, 1);
 }
 
+void button_init(){
 
+	xTaskCreate(buttonUp, "buttonUp", 256, NULL, 2, NULL);
+	xTaskCreate(buttonDown, "buttonDown", 256, NULL, 2, NULL);
+	xTaskCreate(buttonMode, "buttonMode", 256, NULL, 2, NULL);
+}
 
 
 homekit_accessory_t *accessories[] = {
@@ -829,15 +831,12 @@ void user_init(void) {
     wifi_config_init("HomeKit-Thermostat", NULL, on_wifi_ready);
 
     thermostat_init();
-
-//    printf ("Calling screen init\n");
- //   printf ("fonts count %i\n", font_builtin_fonts_count);
     screen_init();
- //   printf ("Screen init called\n");
+    button_init();
+
     int c_hash=ota_read_sysparam(&manufacturer.value.string_value,&serial.value.string_value,
                                       &model.value.string_value,&revision.value.string_value);
     if (c_hash==0) c_hash=1;
         config.accessories[0]->config_number=c_hash;
 
-  //  homekit_server_init(&config);
 }
